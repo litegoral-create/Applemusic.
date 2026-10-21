@@ -1,0 +1,6 @@
+{
+  "name": "SnappyEdge - Edge-to-Edge WebAPK & High-Cache Player",
+  "description": "Immersive edge-to-edge player and Android APK studio with high-speed caching, cover-only mode, and zero blue header bar artifacts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

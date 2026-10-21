@@ -1,0 +1,21 @@
+{
+  "id": "/",
+  "name": "SnappyEdge - Edge-to-Edge Player",
+  "short_name": "SnappyEdge",
+  "description": "Full-screen edge-to-edge music player with high-capacity cache and zero blue bar artifacts.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["music", "multimedia", "utilities"]
+}
