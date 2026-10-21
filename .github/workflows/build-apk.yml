@@ -1,0 +1,151 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. Java 17 is configured before Gradle
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 2. Active Java version is verified
+      - name: Verify active Java version
+        run: java -version
+
+      # 3. Gradle 9.3.1 is used exactly (Repository wrapper is not used)
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      # 4. Temporary debug keystore created before the build (never uploaded)
+      - name: Create temporary debug keystore
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      # 5. Build command is exactly gradle :app:assembleDebug --stacktrace --no-daemon
+      - name: Build Debug APK
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
+
+      # 6. Verify exact APK path exists
+      - name: Verify APK output
+        run: |
+          if [ ! -f "app/build/outputs/apk/debug/app-debug.apk" ]; then
+            echo "ERROR: Expected APK not found at app/build/outputs/apk/debug/app-debug.apk"
+            exit 1
+          fi
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+      # 7. Actions artifact uploaded before release publishing
+      #    Fails if APK is missing; Named exactly app-debug-apk
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # 8. Release publishing step with continue-on-error: true and assigned id
+      - name: Publish GitHub Release
+        id: publish_release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="v1.0.0-build.${{ github.run_number }}.${{ github.run_attempt }}"
+          RELEASE_TITLE="Release v1.0.0 (Build ${{ github.run_number }}.${{ github.run_attempt }})"
+
+          gh release create "$TAG_NAME" "app/build/outputs/apk/debug/app-debug.apk#app-debug.apk" \
+            --target "${{ github.sha }}" \
+            --title "$RELEASE_TITLE" \
+            --notes "Automated Android APK build from commit ${{ github.sha }}. Download the ready-to-install app-debug.apk asset below." \
+            --latest
+
+      # 9. Verify the release result and report
+      - name: Report APK download result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_OUTCOME: ${{ steps.publish_release.outcome }}
+          TAG_NAME: v1.0.0-build.${{ github.run_number }}.${{ github.run_attempt }}
+        run: |
+          echo "========================================================"
+          echo "             APK BUILD & DOWNLOAD REPORT                "
+          echo "========================================================"
+
+          if [ "$RELEASE_OUTCOME" = "success" ]; then
+            echo "STATUS: Release publishing succeeded!"
+
+            # Confirm release using gh release view
+            gh release view "$TAG_NAME"
+
+            RELEASE_URL=$(gh release view "$TAG_NAME" --json url -q .url)
+            RELEASE_TITLE="Release v1.0.0 (Build ${{ github.run_number }}.${{ github.run_attempt }})"
+            ASSET_FILENAME="app-debug.apk"
+
+            echo "Release Tag: $TAG_NAME"
+            echo "Release Title: $RELEASE_TITLE"
+            echo "Direct Release Page URL: $RELEASE_URL"
+            echo "Exact APK Asset Filename: $ASSET_FILENAME"
+            echo ""
+            echo "The APK can be downloaded directly from the release Assets section."
+            echo "The standard Actions artifact 'app-debug-apk' is also available as a backup."
+
+            cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ## 🚀 APK Build & Release Succeeded!
+
+          - **Release Tag:** \`$TAG_NAME\`
+          - **Release Title:** $RELEASE_TITLE
+          - **Direct Release Page URL:** [$RELEASE_URL]($RELEASE_URL)
+          - **Direct APK Asset Filename:** \`$ASSET_FILENAME\`
+
+          ### 📦 Download Instructions:
+          1. Navigate to the [Release Page]($RELEASE_URL).
+          2. Under the **Assets** section, download **\`$ASSET_FILENAME\`**.
+          3. Transfer or install directly on your Android device.
+
+          > **Backup Artifact:** The standard GitHub Actions artifact named \`app-debug-apk\` is also available under the Actions run artifacts.
+          EOF
+
+          else
+            echo "::warning::Release publishing did not complete successfully or was skipped."
+            echo "APK build succeeded."
+            echo "Actions artifact named 'app-debug-apk' remains available."
+
+            cat <<EOF >> $GITHUB_STEP_SUMMARY
+          ## ⚠️ APK Build Succeeded (Release Publishing Warning)
+
+          - **APK Build Status:** Succeeded ✅
+          - **Actions Artifact Name:** \`app-debug-apk\` ✅
+
+          > **Warning:** Release publishing encountered an issue or was skipped, but the APK build succeeded.
+          > You can download the completed APK directly from the **Artifacts** section of this GitHub Actions run under the name **\`app-debug-apk\`**.
+          EOF
+          fi
